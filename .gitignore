@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Data (never commit scans). data/splits.json is the one tracked file in data/.
+data/*
+!data/splits.json
+*.nii
+*.nii.gz
+*.tar
+*.zip
+# ...except tiny synthetic test fixtures
+!tests/fixtures/**/*.nii
+!tests/fixtures/**/*.nii.gz
+
+# Checkpoints / model artifacts / run outputs
+checkpoints/
+runs/
+outputs/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+*.safetensors
+
+# Secrets
+.env
+*.token
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

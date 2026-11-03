@@ -1,0 +1,30 @@
+# Training / dev environment (Python 3.10).
+# Pins resolved together on 2026-11-03 for Python 3.10 (Linux + Windows).
+#
+# torch is pinned to a version listed as supported by HF ZeroGPU (2.8.0 .. 2.13.0
+# at the time of pinning; ZeroGPU runs Python 3.10.13 / 3.12.12). For a CPU-only
+# machine, install the CPU wheel first:
+#   pip install torch==2.13.0 --index-url https://download.pytorch.org/whl/cpu
+# then: pip install -r requirements.txt && pip install -e .
+
+torch==2.13.0
+monai==1.6.1
+nibabel==5.4.2
+numpy==2.2.6
+scipy==1.15.3
+pandas==2.3.3
+matplotlib==3.10.9
+pyyaml==6.0.3
+
+# Export / hub
+onnx==1.23.2
+onnxruntime==1.23.2
+huggingface-hub==2.4.0
+
+# App (also needed by the app smoke test)
+gradio==6.31.0
+spaces==0.51.3
+
+# Dev
+pytest==9.2.0
+ruff==0.17.3

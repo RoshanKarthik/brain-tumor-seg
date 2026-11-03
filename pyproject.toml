@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "btseg"
+version = "0.1.0"
+description = "Brain tumor segmentation and volumetric quantification on BraTS 2021 MRI with MONAI."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Roshan Karthik" }]
+# Loose lower bounds so the package installs on top of preinstalled stacks
+# (e.g. Kaggle images). Exact, tested pins live in requirements.txt.
+dependencies = [
+    "torch>=2.8",
+    "monai>=1.5",
+    "nibabel>=5.0",
+    "numpy>=1.24,<3",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "matplotlib>=3.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+export = ["onnx>=1.16", "onnxruntime>=1.18"]
+hub = ["huggingface-hub>=0.24"]
+app = ["gradio>=4", "spaces>=0.30", "huggingface-hub>=0.24"]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests"]
+extend-exclude = ["notebooks"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "NPY"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["btseg"]

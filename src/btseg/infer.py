@@ -30,7 +30,7 @@ from monai.data import MetaTensor
 from monai.inferers import sliding_window_inference
 from torch import nn
 
-from btseg.config import Config, config_from_dict
+from btseg.config import Config, PostprocessConfig, config_from_dict
 from btseg.data.discover import SEQUENCES, discover_cases
 from btseg.data.labels import regions_to_labels
 from btseg.data.transforms import get_infer_transforms
@@ -39,6 +39,14 @@ from btseg.postprocess import postprocess
 from btseg.volumetrics import region_volumes, voxel_volume_mm3
 
 FLIP_DIMS = [dims for k in range(4) for dims in itertools.combinations((2, 3, 4), k)]
+
+
+@dataclass
+class ProbabilityMaps:
+    plain: np.ndarray  # (3, H, W, D) without TTA
+    tta_mean: np.ndarray | None  # (3, H, W, D) mean over the 8 flips
+    tta_variance: np.ndarray | None  # (3, H, W, D) variance over the 8 flips
+    affine: np.ndarray
 
 
 @dataclass
@@ -131,27 +139,30 @@ class Predictor:
         logits = torch.flip(logits, flip_dims) if flip_dims else logits
         return torch.sigmoid(logits.float())
 
-    def predict(self, flair, t1, t1ce, t2, tta: bool = False) -> PredictionResult:
-        paths = [str(p) for p in (flair, t1, t1ce, t2)]
+    def predict_maps(self, paths: Sequence[str | Path], tta: bool = False) -> ProbabilityMaps:
+        """Probabilities in the input space: plain and, with ``tta``, the 8-flip mean/variance.
+
+        The plain map is the un-flipped member of the TTA set, so one TTA pass also yields
+        the no-TTA prediction (used by the evaluation ablation).
+        """
+        paths = [str(p) for p in paths]
         validate_inputs(paths)
         ref = nib.load(paths[0])
-        start = time.perf_counter()
-
         image = self.transforms({"image": paths})["image"]  # MetaTensor (4, H', W', D')
         x = image.as_tensor().unsqueeze(0).to(self.device)
 
-        # running mean / variance (Welford) over the flip combinations
-        mean, m2 = None, None
+        # running mean / variance (Welford) over the flip combinations; FLIP_DIMS[0] == ()
+        plain, mean, m2 = None, None, None
         flips = FLIP_DIMS if tta else [()]
         for k, dims in enumerate(flips, start=1):
             p = self._probabilities(x, dims)[0]
             if mean is None:
-                mean, m2 = p.clone(), torch.zeros_like(p)
+                plain, mean, m2 = p, p.clone(), torch.zeros_like(p)
             else:
                 delta = p - mean
                 mean += delta / k
                 m2 += delta * (p - mean)
-        maps = torch.cat([mean, m2 / len(flips)]) if tta else mean
+        maps = torch.cat([plain, mean, m2 / len(flips)]) if tta else plain
 
         # back to the input space: undo spacing and orientation (bilinear for probabilities)
         pred = MetaTensor(maps.cpu(), meta=dict(image.meta))
@@ -160,19 +171,30 @@ class Predictor:
         maps = np.clip(np.asarray(inverted.detach().cpu(), dtype=np.float32), 0.0, None)
         if maps.shape[1:] != tuple(ref.shape):
             raise RuntimeError(f"Inverse mapping gave {maps.shape[1:]}, input is {ref.shape}")
-
-        probabilities = np.minimum(maps[:3], 1.0)
-        uncertainty = maps[3:] if tta else None
-        regions = postprocess(probabilities, self.config.postprocess)
-        label_map = np.asarray(regions_to_labels(regions, self.config.data.et_label), np.uint8)
         if self.device.type == "cuda":
             torch.cuda.synchronize()
+        return ProbabilityMaps(
+            plain=np.minimum(maps[:3], 1.0),
+            tta_mean=np.minimum(maps[3:6], 1.0) if tta else None,
+            tta_variance=maps[6:9] if tta else None,
+            affine=ref.affine.copy(),
+        )
+
+    def labels_from(self, probabilities: np.ndarray, pp: PostprocessConfig | None = None):
+        regions = postprocess(probabilities, pp or self.config.postprocess)
+        return np.asarray(regions_to_labels(regions, self.config.data.et_label), np.uint8)
+
+    def predict(self, flair, t1, t1ce, t2, tta: bool = False) -> PredictionResult:
+        start = time.perf_counter()
+        maps = self.predict_maps([flair, t1, t1ce, t2], tta=tta)
+        probabilities = maps.tta_mean if tta else maps.plain
+        label_map = self.labels_from(probabilities)
         return PredictionResult(
             label_map=label_map,
             probabilities=probabilities,
-            uncertainty=uncertainty,
-            affine=ref.affine.copy(),
-            volumes=region_volumes(label_map, ref.affine, self.config.data.et_label),
+            uncertainty=maps.tta_variance,
+            affine=maps.affine,
+            volumes=region_volumes(label_map, maps.affine, self.config.data.et_label),
             inference_seconds=time.perf_counter() - start,
             device=str(self.device),
             tta=tta,

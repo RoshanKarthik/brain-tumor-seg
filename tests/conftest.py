@@ -34,11 +34,12 @@ def write_case(
     et_label: int = 4,
     seed: int = 0,
     with_seg: bool = True,
+    affine: np.ndarray | None = None,
 ) -> dict[str, str]:
     """Write 4 sequences (+ seg) as NIfTI and return the case dict ``discover_cases`` would."""
     directory.mkdir(parents=True, exist_ok=True)
     rng = np.random.default_rng(seed)
-    affine = np.diag([*spacing, 1.0])
+    affine = np.diag([*spacing, 1.0]) if affine is None else affine
 
     grid = np.indices(shape, dtype=np.float32)
     center = (np.array(shape, dtype=np.float32) - 1)[:, None, None, None] / 2

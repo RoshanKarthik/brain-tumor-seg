@@ -41,3 +41,6 @@ outputs/
 Thumbs.db
 .vscode/
 .idea/
+
+# Local tool config
+.claude/

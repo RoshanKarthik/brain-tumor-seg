@@ -30,7 +30,8 @@ class DataConfig:
     roi_size: tuple[int, int, int] = (128, 128, 128)
     pixdim: tuple[float, float, float] = (1.0, 1.0, 1.0)
     et_label: int = 4
-    batch_size: int = 2
+    batch_size: int = 2  # cases per step; crops per step = batch_size * crops_per_case
+    crops_per_case: int = 1  # random crops from each loaded case (amortizes file reading)
     num_workers: int = 4
     splits: str = "data/splits.json"
 

@@ -16,7 +16,8 @@ data:
   roi_size: [128, 128, 128]   # train crop; 96^3 if memory is tight
   pixdim: [1.0, 1.0, 1.0]
   et_label: 4                 # BraTS 2021; 3 for BraTS 2023+
-  batch_size: 2
+  batch_size: 1             # cases per step
+  crops_per_case: 2         # random crops per loaded case -> 2 crops per step
   num_workers: 4
   splits: data/splits.json
 

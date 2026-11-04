@@ -8,15 +8,22 @@ All pipelines: load and stack the 4 sequences channel-first, orient to RAS, resa
 ``pixdim`` (1 mm; a no-op for BraTS, needed for user uploads), and z-score each channel
 over nonzero (brain) voxels. Labels are converted to [TC, WT, ET] region masks.
 
-Train adds: foreground crop, pad to at least ``roi_size``, random ``roi_size`` crop,
+Train: crop to the brain (nonzero voxels of the *raw* image), then normalize, convert
+labels, pad to at least ``roi_size``, take ``crops_per_case`` random ``roi_size`` crops,
 random flips on all 3 axes, and a small random intensity scale/shift.
 Val/infer: no cropping; the whole volume goes through sliding-window inference.
+
+Speed (training is CPU-bound on Kaggle): train/val keep the stored dtype (int16 for
+BraTS) until the explicit float32 cast, and train does all per-voxel work after the
+brain crop. Several crops per loaded case amortize the cost of reading the files.
 """
 
 from __future__ import annotations
 
 from collections.abc import Hashable, Mapping, Sequence
 
+import numpy as np
+import torch
 from monai.config import KeysCollection
 from monai.transforms import (
     Compose,
@@ -29,7 +36,7 @@ from monai.transforms import (
     RandFlipd,
     RandScaleIntensityd,
     RandShiftIntensityd,
-    RandSpatialCropd,
+    RandSpatialCropSamplesd,
     Spacingd,
     SpatialPadd,
 )
@@ -54,10 +61,16 @@ class LabelsToRegionsd(MapTransform):
         return d
 
 
-def _base_transforms(keys: list[str], pixdim: Sequence[float]) -> list:
+def _load_and_resample(keys: list[str], pixdim: Sequence[float], keep_dtype: bool) -> list:
+    """Load, orient to RAS, resample. ``keep_dtype`` defers the float32 conversion."""
     has_label = "label" in keys
     return [
-        LoadImaged(keys=keys, ensure_channel_first=True, image_only=True),
+        LoadImaged(
+            keys=keys,
+            ensure_channel_first=True,
+            image_only=True,
+            dtype=None if keep_dtype else np.float32,
+        ),
         EnsureTyped(keys=keys, track_meta=True),
         # explicit labels = NIfTI/nibabel world convention (RAS+); silences MONAI's default change
         Orientationd(keys=keys, axcodes="RAS", labels=(("L", "R"), ("P", "A"), ("I", "S"))),
@@ -66,6 +79,12 @@ def _base_transforms(keys: list[str], pixdim: Sequence[float]) -> list:
             pixdim=tuple(pixdim),
             mode=("bilinear", "nearest") if has_label else "bilinear",
         ),
+    ]
+
+
+def _normalize() -> list:
+    return [
+        EnsureTyped(keys="image", dtype=torch.float32, track_meta=True),
         NormalizeIntensityd(keys="image", nonzero=True, channel_wise=True),
     ]
 
@@ -74,15 +93,20 @@ def get_train_transforms(
     roi_size: Sequence[int] = DEFAULT_ROI,
     et_label: int = 4,
     pixdim: Sequence[float] = DEFAULT_PIXDIM,
+    crops_per_case: int = 1,
 ) -> Compose:
+    """Returns a list of ``crops_per_case`` dicts per case (MONAI's collate flattens it)."""
     keys = ["image", "label"]
     return Compose(
-        _base_transforms(keys, pixdim)
+        _load_and_resample(keys, pixdim, keep_dtype=True)
+        + [CropForegroundd(keys=keys, source_key="image", allow_smaller=True)]
+        + _normalize()
         + [
             LabelsToRegionsd(keys="label", et_label=et_label),
-            CropForegroundd(keys=keys, source_key="image", allow_smaller=True),
             SpatialPadd(keys=keys, spatial_size=tuple(roi_size)),
-            RandSpatialCropd(keys=keys, roi_size=tuple(roi_size), random_size=False),
+            RandSpatialCropSamplesd(
+                keys=keys, roi_size=tuple(roi_size), num_samples=crops_per_case, random_size=False
+            ),
             RandFlipd(keys=keys, prob=0.5, spatial_axis=0),
             RandFlipd(keys=keys, prob=0.5, spatial_axis=1),
             RandFlipd(keys=keys, prob=0.5, spatial_axis=2),
@@ -97,10 +121,12 @@ def get_val_transforms(
 ) -> Compose:
     keys = ["image", "label"]
     return Compose(
-        _base_transforms(keys, pixdim) + [LabelsToRegionsd(keys="label", et_label=et_label)]
+        _load_and_resample(keys, pixdim, keep_dtype=True)
+        + [LabelsToRegionsd(keys="label", et_label=et_label)]
+        + _normalize()
     )
 
 
 def get_infer_transforms(pixdim: Sequence[float] = DEFAULT_PIXDIM) -> Compose:
     """Image-only pipeline. Every step is invertible, so predictions can be mapped back."""
-    return Compose(_base_transforms(["image"], pixdim))
+    return Compose(_load_and_resample(["image"], pixdim, keep_dtype=False) + _normalize())

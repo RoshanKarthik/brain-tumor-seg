@@ -181,7 +181,9 @@ def main(argv: list[str] | None = None) -> dict:
     cases = discover_cases(args.data_root, require_seg=True)
     train_cases = select_split(cases, splits, "train")[: args.max_train_cases]
     val_cases = select_split(cases, splits, "val")[: args.max_val_cases]
-    train_tf = get_train_transforms(cfg.data.roi_size, cfg.data.et_label, cfg.data.pixdim)
+    train_tf = get_train_transforms(
+        cfg.data.roi_size, cfg.data.et_label, cfg.data.pixdim, cfg.data.crops_per_case
+    )
     train_loader = DataLoader(
         build_dataset(train_cases, train_tf),
         batch_size=cfg.data.batch_size,

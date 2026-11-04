@@ -20,20 +20,39 @@ def assert_nested(regions):
 
 
 def test_train_shapes_and_targets(synthetic_case):
-    t = get_train_transforms(roi_size=(32, 32, 32))
+    t = get_train_transforms(roi_size=(32, 32, 32), crops_per_case=2)
     t.set_random_state(seed=0)
-    out = t(case_to_item(synthetic_case))
-    assert out["image"].shape == (4, 32, 32, 32)
-    assert out["label"].shape == (3, 32, 32, 32)
-    assert out["image"].dtype == torch.float32
-    assert set(torch.unique(out["label"]).tolist()) <= {0.0, 1.0}
-    assert_nested(out["label"])
+    crops = t(case_to_item(synthetic_case))
+    assert isinstance(crops, list) and len(crops) == 2
+    for out in crops:
+        assert out["image"].shape == (4, 32, 32, 32)
+        assert out["label"].shape == (3, 32, 32, 32)
+        assert out["image"].dtype == torch.float32
+        assert out["label"].dtype == torch.float32
+        assert set(torch.unique(out["label"]).tolist()) <= {0.0, 1.0}
+        assert_nested(out["label"])
+    assert not torch.equal(crops[0]["image"], crops[1]["image"])
 
 
 def test_train_pads_when_roi_larger_than_foreground(synthetic_case):
-    out = get_train_transforms(roi_size=(96, 96, 96))(case_to_item(synthetic_case))
+    (out,) = get_train_transforms(roi_size=(96, 96, 96))(case_to_item(synthetic_case))
     assert out["image"].shape == (4, 96, 96, 96)
     assert out["label"].shape == (3, 96, 96, 96)
+
+
+def test_train_crops_to_the_whole_brain_before_normalizing(tmp_path):
+    # foreground must come from raw intensities (all nonzero brain voxels), not from
+    # z-scored ones (> 0 would keep only above-average voxels and cut the brain edges)
+    case = write_case(tmp_path, "crop", shape=(64, 64, 64))
+    raw = nib.load(case["flair"]).get_fdata()
+    extent = [int(np.ptp(np.nonzero(raw)[ax])) + 1 for ax in range(3)]
+    big = tuple(max(extent) + 8 for _ in range(3))
+    (out,) = get_train_transforms(roi_size=big)(case_to_item(case))
+    flair = out["image"][0]
+    brain = flair != flair[0, 0, 0]  # padding is constant (intensity aug shifts it off zero)
+    got = [int(np.ptp(np.nonzero(brain.numpy())[ax])) + 1 for ax in range(3)]
+    assert got == extent
+    assert out["label"][1].sum().item() == (nib.load(case["seg"]).get_fdata() > 0).sum()
 
 
 def test_val_keeps_whole_volume_and_normalizes(synthetic_case):

@@ -1,0 +1,36 @@
+# Main model: MONAI SegResNet (PROJECT_PLAN.md, Phase 2).
+run_name: segresnet_dice
+
+model:
+  name: segresnet
+  kwargs:
+    init_filters: 16
+    blocks_down: [1, 2, 2, 4]
+    blocks_up: [1, 1, 1]
+    dropout_prob: 0.2
+
+loss:
+  name: dice          # dice | dicefocal (sigmoid; smoothing defaults in btseg.losses)
+  kwargs: {}
+
+data:
+  roi_size: [128, 128, 128]   # train crop; 96^3 if memory is tight
+  pixdim: [1.0, 1.0, 1.0]
+  et_label: 4                 # BraTS 2021; 3 for BraTS 2023+
+  batch_size: 2
+  num_workers: 4
+  splits: data/splits.json
+
+train:
+  epochs: 150
+  lr: 1.0e-4
+  weight_decay: 1.0e-5
+  warmup_epochs: 5
+  val_interval: 5
+  amp: true
+  seed: 42
+
+infer:
+  roi_size: [128, 128, 128]
+  overlap: 0.5
+  sw_batch_size: 2

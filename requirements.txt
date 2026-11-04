@@ -9,6 +9,7 @@
 
 torch==2.13.0
 monai==1.6.1
+einops==0.8.2   # SwinUNETR
 nibabel==5.4.2
 numpy==2.2.6
 scipy==1.15.3

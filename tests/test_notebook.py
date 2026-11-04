@@ -23,3 +23,30 @@ def test_notebook_never_contains_tokens():
     text = NOTEBOOK.read_text(encoding="utf-8")
     assert not re.search(r"hf_[A-Za-z0-9]{20,}", text)
     assert "HF_TOKEN" in text and "UserSecretsClient" in text
+
+
+def test_kaggle_push_builds_kernel_folder(tmp_path):
+    import importlib.util
+
+    script = NOTEBOOK.parents[1] / "scripts" / "kaggle_push.py"
+    spec = importlib.util.spec_from_file_location("kaggle_push", script)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    folder = module.main(["--user", "someone", "--mode", "full", "--resume",
+                          "--config", "configs/unet3d.yaml", "--out", str(tmp_path)])
+    meta = json.loads((folder / "kernel-metadata.json").read_text(encoding="utf-8"))
+    assert meta["id"] == "someone/brats-unet3d-train"
+    assert meta["enable_gpu"] and meta["enable_internet"] and meta["is_private"]
+    assert meta["dataset_sources"] == ["dschettler8845/brats-2021-task1"]
+    assert meta["kernel_sources"] == ["someone/brats-unet3d-train"]
+
+    nb = json.loads((folder / "kaggle_train.ipynb").read_text(encoding="utf-8"))
+    settings = "".join(nb["cells"][1]["source"])
+    assert 'CONFIG = "configs/unet3d.yaml"' in settings
+    assert "RUN_SMOKE_TEST = False" in settings and "RUN_FULL_TRAINING = True" in settings
+    assert "# the real run" in settings  # trailing comments survive
+
+    smoke = module.main(["--user", "someone", "--out", str(tmp_path)])
+    meta = json.loads((smoke / "kernel-metadata.json").read_text(encoding="utf-8"))
+    assert meta["id"] == "someone/brats-segresnet-smoke" and meta["kernel_sources"] == []

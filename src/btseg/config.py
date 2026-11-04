@@ -51,6 +51,7 @@ class InferConfig:
     roi_size: tuple[int, int, int] = (128, 128, 128)
     overlap: float = 0.5
     sw_batch_size: int = 2
+    mode: str = "gaussian"  # sliding-window blending: gaussian | constant
 
 
 @dataclass

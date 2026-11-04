@@ -40,6 +40,7 @@ def build(
     out_root: Path,
     slug: str | None = None,
     resume: bool = False,
+    smoke_args: str | None = None,
 ) -> Path:
     stem = Path(config).stem
     slug = slug or (f"brats-{stem}-smoke" if mode == "smoke" else f"brats-{stem}-train")
@@ -50,6 +51,8 @@ def build(
     src = _set(src, "CONFIG", json.dumps(config))
     src = _set(src, "RUN_SMOKE_TEST", str(mode == "smoke"))
     src = _set(src, "RUN_FULL_TRAINING", str(mode == "full"))
+    if smoke_args is not None:
+        src = _set(src, "SMOKE_ARGS", json.dumps(smoke_args))
     lines = src.split("\n")
     settings["source"] = [line + "\n" for line in lines[:-1]] + [lines[-1]]
 
@@ -87,12 +90,23 @@ def main(argv: list[str] | None = None) -> Path:
     p.add_argument(
         "--resume", action="store_true", help="Attach the previous version's output (full runs)"
     )
+    p.add_argument(
+        "--smoke-args",
+        help='btseg.train flags for the smoke test, e.g. "--epochs 3 --max-train-cases 100"',
+    )
     p.add_argument("--out", type=Path, default=ROOT / "build" / "kaggle")
     args = p.parse_args(argv)
     if args.resume and args.mode != "full":
         p.error("--resume only applies to --mode full")
     folder = build(
-        args.user, args.mode, args.config, args.branch, args.out, args.slug, args.resume
+        args.user,
+        args.mode,
+        args.config,
+        args.branch,
+        args.out,
+        args.slug,
+        args.resume,
+        args.smoke_args,
     )
     print(f"Wrote {folder}\nNext: kaggle kernels push -p {folder}")
     return folder

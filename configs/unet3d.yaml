@@ -34,3 +34,8 @@ infer:
   roi_size: [128, 128, 128]
   overlap: 0.5
   sw_batch_size: 2
+
+postprocess:              # each step can be switched off for ablations
+  threshold: 0.5
+  min_component_voxels: 0 # 0 = off
+  et_min_voxels: 0        # 0 = off

@@ -56,6 +56,13 @@ class InferConfig:
 
 
 @dataclass
+class PostprocessConfig:
+    threshold: float = 0.5
+    min_component_voxels: int = 0  # 0 = off; drop smaller connected components per region
+    et_min_voxels: int = 0  # 0 = off; if all predicted ET is smaller, relabel it as NCR
+
+
+@dataclass
 class Config:
     run_name: str = "run"
     model: ModelConfig = field(default_factory=ModelConfig)
@@ -63,6 +70,7 @@ class Config:
     data: DataConfig = field(default_factory=DataConfig)
     train: TrainConfig = field(default_factory=TrainConfig)
     infer: InferConfig = field(default_factory=InferConfig)
+    postprocess: PostprocessConfig = field(default_factory=PostprocessConfig)
 
     def to_dict(self) -> dict[str, Any]:
         return dataclasses.asdict(self)
@@ -74,6 +82,7 @@ _SECTIONS = {
     "data": DataConfig,
     "train": TrainConfig,
     "infer": InferConfig,
+    "postprocess": PostprocessConfig,
 }
 _TUPLE_FIELDS = {("data", "roi_size"), ("data", "pixdim"), ("infer", "roi_size")}
 

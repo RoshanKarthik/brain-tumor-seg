@@ -57,3 +57,22 @@ def test_kaggle_push_builds_kernel_folder(tmp_path):
                           "--smoke-args", "--epochs 3 --max-train-cases 100"])
     nb = json.loads((timing / "kaggle_train.ipynb").read_text(encoding="utf-8"))
     assert 'SMOKE_ARGS = "--epochs 3 --max-train-cases 100"' in "".join(nb["cells"][1]["source"])
+
+
+def test_kaggle_push_eval_mode_attaches_training_output(tmp_path):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "kaggle_push", NOTEBOOK.parents[1] / "scripts" / "kaggle_push.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    folder = module.main(["--user", "someone", "--mode", "eval", "--out", str(tmp_path),
+                          "--eval-args", "--split val"])
+    meta = json.loads((folder / "kernel-metadata.json").read_text(encoding="utf-8"))
+    assert meta["id"] == "someone/brats-segresnet-eval"
+    assert meta["kernel_sources"] == ["someone/brats-segresnet-train"]
+    nb = json.loads((folder / "kaggle_train.ipynb").read_text(encoding="utf-8"))
+    settings = "".join(nb["cells"][1]["source"])
+    assert "RUN_EVALUATION = True" in settings and 'EVAL_ARGS = "--split val"' in settings
+    assert "RUN_FULL_TRAINING = False" in settings and "RUN_SMOKE_TEST = False" in settings

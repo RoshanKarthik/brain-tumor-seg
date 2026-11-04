@@ -102,3 +102,13 @@ def test_validate_inputs_rejects_mismatched_files(tmp_path):
     bad.write_bytes(b"not a nifti")
     with pytest.raises(ValueError, match="cannot read"):
         validate_inputs([*files(a)[:3], bad])
+
+
+def test_tta_pass_also_returns_the_plain_prediction(tmp_path):
+    case = write_case(tmp_path, "c", shape=(32, 32, 32))
+    torch.manual_seed(0)
+    predictor = Predictor(build_model("segresnet", init_filters=8), Config(), device="cpu")
+    plain = predictor.predict_maps(files(case)).plain
+    both = predictor.predict_maps(files(case), tta=True)
+    np.testing.assert_allclose(both.plain, plain, atol=1e-5)
+    assert not np.allclose(both.tta_mean, plain)

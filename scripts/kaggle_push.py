@@ -41,9 +41,16 @@ def build(
     slug: str | None = None,
     resume: bool = False,
     smoke_args: str | None = None,
+    eval_args: str | None = None,
 ) -> Path:
     stem = Path(config).stem
-    slug = slug or (f"brats-{stem}-smoke" if mode == "smoke" else f"brats-{stem}-train")
+    train_slug = f"brats-{stem}-train"
+    default_slugs = {
+        "smoke": f"brats-{stem}-smoke",
+        "full": train_slug,
+        "eval": f"brats-{stem}-eval",
+    }
+    slug = slug or default_slugs[mode]
     nb = json.loads(NOTEBOOK.read_text(encoding="utf-8"))
     settings = next(c for c in nb["cells"] if "# ---- settings ----" in "".join(c["source"]))
     src = "".join(settings["source"])
@@ -51,8 +58,11 @@ def build(
     src = _set(src, "CONFIG", json.dumps(config))
     src = _set(src, "RUN_SMOKE_TEST", str(mode == "smoke"))
     src = _set(src, "RUN_FULL_TRAINING", str(mode == "full"))
+    src = _set(src, "RUN_EVALUATION", str(mode == "eval"))
     if smoke_args is not None:
         src = _set(src, "SMOKE_ARGS", json.dumps(smoke_args))
+    if eval_args is not None:
+        src = _set(src, "EVAL_ARGS", json.dumps(eval_args))
     lines = src.split("\n")
     settings["source"] = [line + "\n" for line in lines[:-1]] + [lines[-1]]
 
@@ -72,7 +82,10 @@ def build(
         "machine_shape": "NvidiaTeslaT4",
         "dataset_sources": [DATASET],
         "competition_sources": [],
-        "kernel_sources": [f"{user}/{slug}"] if resume else [],
+        # resume: this kernel's previous output; eval: the training kernel's output (best.pt)
+        "kernel_sources": [f"{user}/{slug}"] if resume else (
+            [f"{user}/{train_slug}"] if mode == "eval" else []
+        ),
         "model_sources": [],
     }
     meta_text = json.dumps(metadata, indent=2) + "\n"
@@ -83,7 +96,7 @@ def build(
 def main(argv: list[str] | None = None) -> Path:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--user", required=True, help="Kaggle username")
-    p.add_argument("--mode", choices=("smoke", "full"), default="smoke")
+    p.add_argument("--mode", choices=("smoke", "full", "eval"), default="smoke")
     p.add_argument("--config", default="configs/segresnet.yaml")
     p.add_argument("--branch", default="main")
     p.add_argument("--slug", help="Kernel slug; default brats-<config>-smoke / -train")
@@ -94,6 +107,7 @@ def main(argv: list[str] | None = None) -> Path:
         "--smoke-args",
         help='btseg.train flags for the smoke test, e.g. "--epochs 3 --max-train-cases 100"',
     )
+    p.add_argument("--eval-args", help='btseg.evaluate flags, default "--split test --ablation"')
     p.add_argument("--out", type=Path, default=ROOT / "build" / "kaggle")
     args = p.parse_args(argv)
     if args.resume and args.mode != "full":
@@ -107,6 +121,7 @@ def main(argv: list[str] | None = None) -> Path:
         args.slug,
         args.resume,
         args.smoke_args,
+        args.eval_args,
     )
     print(f"Wrote {folder}\nNext: kaggle kernels push -p {folder}")
     return folder

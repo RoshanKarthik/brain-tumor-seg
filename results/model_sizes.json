@@ -1,0 +1,21 @@
+{
+  "torch": "2.13.0",
+  "monai": "1.6.1",
+  "models": {
+    "segresnet": {
+      "config": "configs/segresnet.yaml",
+      "trainable_parameters": 4702227,
+      "total_parameters": 4702227
+    },
+    "swinunetr": {
+      "config": "configs/swinunetr.yaml",
+      "trainable_parameters": 62191941,
+      "total_parameters": 62191941
+    },
+    "unet3d": {
+      "config": "configs/unet3d.yaml",
+      "trainable_parameters": 4810074,
+      "total_parameters": 4810074
+    }
+  }
+}

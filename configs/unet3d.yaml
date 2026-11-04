@@ -1,0 +1,35 @@
+# Baseline: MONAI 3D UNet with a parameter count comparable to SegResNet.
+run_name: unet3d_dice
+
+model:
+  name: unet3d
+  kwargs:
+    channels: [16, 32, 64, 128, 256]
+    strides: [2, 2, 2, 2]
+    num_res_units: 2
+
+loss:
+  name: dice          # dice | dicefocal (sigmoid; smoothing defaults in btseg.losses)
+  kwargs: {}
+
+data:
+  roi_size: [128, 128, 128]   # train crop; 96^3 if memory is tight
+  pixdim: [1.0, 1.0, 1.0]
+  et_label: 4                 # BraTS 2021; 3 for BraTS 2023+
+  batch_size: 2
+  num_workers: 4
+  splits: data/splits.json
+
+train:
+  epochs: 150
+  lr: 1.0e-4
+  weight_decay: 1.0e-5
+  warmup_epochs: 5
+  val_interval: 5
+  amp: true
+  seed: 42
+
+infer:
+  roi_size: [128, 128, 128]
+  overlap: 0.5
+  sw_batch_size: 2

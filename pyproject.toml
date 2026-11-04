@@ -14,6 +14,7 @@ authors = [{ name = "Roshan Karthik" }]
 dependencies = [
     "torch>=2.8",
     "monai>=1.5",
+    "einops>=0.8",
     "nibabel>=5.0",
     "numpy>=1.24,<3",
     "scipy>=1.10",

@@ -50,3 +50,10 @@ def test_kaggle_push_builds_kernel_folder(tmp_path):
     smoke = module.main(["--user", "someone", "--out", str(tmp_path)])
     meta = json.loads((smoke / "kernel-metadata.json").read_text(encoding="utf-8"))
     assert meta["id"] == "someone/brats-segresnet-smoke" and meta["kernel_sources"] == []
+    nb = json.loads((smoke / "kaggle_train.ipynb").read_text(encoding="utf-8"))
+    assert 'SMOKE_ARGS = "--epochs 2 --max-train-cases 20' in "".join(nb["cells"][1]["source"])
+
+    timing = module.main(["--user", "someone", "--out", str(tmp_path), "--slug", "t",
+                          "--smoke-args", "--epochs 3 --max-train-cases 100"])
+    nb = json.loads((timing / "kaggle_train.ipynb").read_text(encoding="utf-8"))
+    assert 'SMOKE_ARGS = "--epochs 3 --max-train-cases 100"' in "".join(nb["cells"][1]["source"])

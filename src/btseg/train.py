@@ -46,6 +46,9 @@ LOG_FIELDS = [
     *(f"val_dice_{r.lower()}" for r in REGIONS),
     "val_dice_mean",
     "best_val_dice",
+    "train_seconds",
+    "data_wait_seconds",  # part of train_seconds spent waiting for the DataLoader (CPU-bound)
+    "val_seconds",
     "epoch_seconds",
 ]
 
@@ -80,10 +83,15 @@ def _append_log(path: Path, row: dict) -> None:
         writer.writerow(row)
 
 
-def train_one_epoch(model, loader, loss_fn, optimizer, scaler, device, amp: bool) -> float:
+def train_one_epoch(
+    model, loader, loss_fn, optimizer, scaler, device, amp: bool
+) -> tuple[float, float]:
+    """Return (mean loss, seconds spent waiting for batches)."""
     model.train()
-    total, n = 0.0, 0
+    total, n, data_wait = 0.0, 0, 0.0
+    t_wait = time.perf_counter()
     for batch in loader:
+        data_wait += time.perf_counter() - t_wait
         images = batch["image"].to(device, non_blocking=True)
         labels = batch["label"].to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
@@ -92,9 +100,10 @@ def train_one_epoch(model, loader, loss_fn, optimizer, scaler, device, amp: bool
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
-        total += loss.item() * images.shape[0]
+        total += loss.item() * images.shape[0]  # .item() syncs, so the wait below is honest
         n += images.shape[0]
-    return total / max(n, 1)
+        t_wait = time.perf_counter()
+    return total / max(n, 1), data_wait
 
 
 @torch.no_grad()
@@ -230,11 +239,15 @@ def main(argv: list[str] | None = None) -> dict:
                 break
         t0 = time.time()
         lr = optimizer.param_groups[0]["lr"]
-        train_loss = train_one_epoch(model, train_loader, loss_fn, optimizer, scaler, device, amp)
+        train_loss, data_wait = train_one_epoch(
+            model, train_loader, loss_fn, optimizer, scaler, device, amp
+        )
+        train_seconds = time.time() - t0
         scheduler.step()
 
         done = epochs_done = epoch + 1
         dice = None
+        t_val = time.time()
         if done % cfg.train.val_interval == 0 or done == cfg.train.epochs:
             dice = validate(model, val_loader, cfg, device, amp)
             mean_dice = float(np.mean(dice))
@@ -252,6 +265,7 @@ def main(argv: list[str] | None = None) -> dict:
                     best_path,
                 )
 
+        val_seconds = time.time() - t_val
         last_epoch_seconds = time.time() - t0
         _atomic_save(
             {
@@ -272,6 +286,9 @@ def main(argv: list[str] | None = None) -> dict:
             "lr": f"{lr:.3e}",
             "train_loss": f"{train_loss:.5f}",
             "best_val_dice": f"{best_metric:.5f}" if best_epoch > 0 else "",
+            "train_seconds": f"{train_seconds:.1f}",
+            "data_wait_seconds": f"{data_wait:.1f}",
+            "val_seconds": f"{val_seconds:.1f}" if dice is not None else "",
             "epoch_seconds": f"{last_epoch_seconds:.1f}",
         }
         line = f"epoch {done}/{cfg.train.epochs} | loss {train_loss:.4f} | lr {lr:.2e}"
@@ -284,7 +301,11 @@ def main(argv: list[str] | None = None) -> dict:
             )
             line += f" mean {np.mean(dice):.3f} (best {best_metric:.3f} @ {best_epoch})"
         _append_log(log_path, row)
-        print(f"{line} | {last_epoch_seconds:.0f}s", flush=True)
+        print(
+            f"{line} | {last_epoch_seconds:.0f}s (train {train_seconds:.0f}s, "
+            f"waiting for data {data_wait:.0f}s)",
+            flush=True,
+        )
 
     return {"epochs_done": epochs_done, "best_metric": best_metric, "best_epoch": best_epoch}
 

@@ -54,6 +54,9 @@ def test_one_epoch_then_resume(run_setup):
     (row,) = read_log(out)
     assert row["epoch"] == "1"
     assert 0.0 <= float(row["val_dice_mean"]) <= 1.0
+    assert 0.0 <= float(row["data_wait_seconds"]) <= float(row["train_seconds"])
+    parts = float(row["train_seconds"]) + float(row["val_seconds"])
+    assert parts <= float(row["epoch_seconds"]) + 0.1
 
     last = torch.load(out / "last.pt", weights_only=True)
     best = torch.load(out / "best.pt", weights_only=True)

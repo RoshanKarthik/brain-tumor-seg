@@ -23,10 +23,10 @@ data:
   splits: data/splits.json
 
 train:
-  epochs: 150
+  epochs: 60            # 2 crops per case -> 120k crops; ~16 min/epoch on a Kaggle T4
   lr: 1.0e-4
   weight_decay: 1.0e-5
-  warmup_epochs: 5
+  warmup_epochs: 3
   val_interval: 5
   amp: true
   seed: 42

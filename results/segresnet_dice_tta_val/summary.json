@@ -1,0 +1,119 @@
+{
+  "run_name": "segresnet_dice_tta_val",
+  "checkpoint": "/kaggle/input/notebooks/roshankarrthik/brats-segresnet-train/runs/segresnet_dice/best.pt",
+  "model": "segresnet",
+  "split": "val",
+  "splits_file": "/tmp/brain-tumor-seg/data/splits.json",
+  "btseg_version": "0.1.0",
+  "git_commit": "9794e6d",
+  "evaluated_at": "2026-11-10T07:33:51+00:00",
+  "n_cases": 125,
+  "tta": true,
+  "postprocess": {
+    "threshold": 0.5,
+    "region_thresholds": null,
+    "min_component_voxels": 0,
+    "et_min_voxels": 0
+  },
+  "device": "cuda",
+  "mean_seconds_per_case": 14.349,
+  "metric_note": "Empty masks follow BraTS: Dice 1 / HD95 0 mm if prediction and ground truth are both empty, Dice 0 / HD95 373.13 mm if exactly one is empty. HD95 is MONAI's symmetric 95th-percentile Hausdorff distance in mm.",
+  "dice": {
+    "WT": {
+      "mean": 0.892242272,
+      "std": 0.13612381314073524,
+      "median": 0.939978,
+      "n": 125
+    },
+    "TC": {
+      "mean": 0.90597248,
+      "std": 0.15097448994009208,
+      "median": 0.955982,
+      "n": 125
+    },
+    "ET": {
+      "mean": 0.870147832,
+      "std": 0.17079031246006143,
+      "median": 0.921627,
+      "n": 125
+    },
+    "mean_of_regions": 0.8894541946666665
+  },
+  "hd95_mm": {
+    "WT": {
+      "mean": 9.953305600000002,
+      "std": 34.301349167684876,
+      "median": 3.0,
+      "n": 125
+    },
+    "TC": {
+      "mean": 7.806668,
+      "std": 34.31256460008397,
+      "median": 1.4142,
+      "n": 125
+    },
+    "ET": {
+      "mean": 12.7422096,
+      "std": 57.3340469116982,
+      "median": 1.4142,
+      "n": 125
+    }
+  },
+  "volume_agreement": {
+    "NCR": {
+      "mae_cm3": 2.3543920000000003,
+      "mean_abs_percent_error": 1840.0881602378327,
+      "percent_error_n": 117,
+      "pearson_r": 0.9126652473242868,
+      "bias_cm3": -0.2769039999999998,
+      "loa_cm3": [
+        -13.450694630631592,
+        12.896886630631592
+      ]
+    },
+    "ED": {
+      "mae_cm3": 9.747687999999998,
+      "mean_abs_percent_error": 20.3136034551144,
+      "percent_error_n": 125,
+      "pearson_r": 0.9304035114105889,
+      "bias_cm3": -7.235256000000001,
+      "loa_cm3": [
+        -36.55991955281187,
+        22.08940755281187
+      ]
+    },
+    "ET": {
+      "mae_cm3": 1.9174559999999998,
+      "mean_abs_percent_error": 16.877574622459807,
+      "percent_error_n": 122,
+      "pearson_r": 0.979518677215314,
+      "bias_cm3": 0.1730400000000001,
+      "loa_cm3": [
+        -6.68763498085758,
+        7.033714980857581
+      ]
+    },
+    "TC": {
+      "mae_cm3": 2.6578320000000004,
+      "mean_abs_percent_error": 15.440819372667205,
+      "percent_error_n": 125,
+      "pearson_r": 0.9689097187269943,
+      "bias_cm3": -0.10386400000000007,
+      "loa_cm3": [
+        -13.271558048981609,
+        13.06383004898161
+      ]
+    },
+    "WT": {
+      "mae_cm3": 9.504688,
+      "mean_abs_percent_error": 13.154344605031904,
+      "percent_error_n": 125,
+      "pearson_r": 0.9686021974096298,
+      "bias_cm3": -7.33912,
+      "loa_cm3": [
+        -34.84130487634126,
+        20.16306487634126
+      ]
+    }
+  }
+}

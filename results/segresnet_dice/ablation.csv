@@ -1,0 +1,5 @@
+variant,tta,pp_threshold,pp_region_thresholds,pp_min_component_voxels,pp_et_min_voxels,dice_WT_mean,dice_TC_mean,dice_ET_mean,dice_mean_of_regions,hd95_WT_mean,hd95_TC_mean,hd95_ET_mean
+no_tta+threshold_only,False,0.5,,0,0,0.9264,0.9087,0.8838,0.9063,6.086,4.417,3.699
+no_tta+postprocess,False,0.5,"(0.5, 0.3, 0.5)",0,0,0.9276,0.9087,0.8838,0.9067,6.34,4.417,3.699
+tta+threshold_only,True,0.5,,0,0,0.9299,0.9109,0.8873,0.9094,5.735,3.823,3.396
+tta+postprocess,True,0.5,"(0.5, 0.3, 0.5)",0,0,0.9295,0.9109,0.8873,0.9092,6.561,3.823,3.396

@@ -14,11 +14,14 @@ these files; missing results show as TBD.
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import shutil
 from pathlib import Path
 
 import torch
+
+from btseg.config import load_config
 
 ROOT = Path(__file__).resolve().parents[1]
 REGIONS = ("WT", "TC", "ET")
@@ -29,6 +32,15 @@ RESULT_FILES = ("summary.json", "per_case.csv", "ablation.csv")
 
 def _fmt(value, digits=3) -> str:
     return "TBD" if value is None else f"{value:.{digits}f}"
+
+
+def _threshold_text(pp: dict) -> str:
+    region = pp.get("region_thresholds")
+    if region:
+        tc, wt, et = region
+        return (f"thresholded per region (TC {tc}, WT {wt}, ET {et}; chosen on the validation "
+                "split)")
+    return f"thresholded at {pp.get('threshold', 0.5)}"
 
 
 def model_card(
@@ -75,7 +87,7 @@ def model_card(
         "- Input: 4 co-registered MRI sequences in the order [FLAIR, T1, T1ce, T2], reoriented "
         f"to RAS, resampled to {data['pixdim']} mm, z-scored per channel over brain voxels",
         "- Output: 3 sigmoid channels [TC, WT, ET] (tumor core, whole tumor, enhancing tumor), "
-        f"thresholded at {cfg.get('postprocess', {}).get('threshold', 0.5)} and converted to "
+        f"{_threshold_text(cfg.get('postprocess', {}))} and converted to "
         f"BraTS labels 1 = NCR, 2 = ED, {data['et_label']} = ET",
         f"- Inference: sliding window, ROI {cfg['infer']['roi_size']}, overlap "
         f"{cfg['infer']['overlap']}, {cfg['infer']['mode']} blending; optional 8-flip TTA",
@@ -123,7 +135,15 @@ def model_card(
                 f"(n = {v['percent_error_n']}) | {_fmt(v['pearson_r'])} | "
                 f"{_fmt(v['bias_cm3'], 2)} |"
             )
-        lines += ["", "Per-case results and figures are in `results/`.", ""]
+        lines += [
+            "",
+            "Mean absolute % error is computed over cases with a nonzero ground-truth volume. "
+            "It is dominated by small regions (a 1 cm³ miss on a 0.5 cm³ region is 200 %), so "
+            "for NCR, ET and TC the MAE and Pearson r are the more informative measures.",
+            "",
+            "Per-case results and figures are in `results/`.",
+            "",
+        ]
     else:
         lines += ["TBD: not evaluated on the test split yet.", ""]
 
@@ -187,10 +207,22 @@ def stage(args) -> Path:
     if out.exists():
         shutil.rmtree(out)
     (out / "results").mkdir(parents=True)
-    shutil.copy2(ckpt_path, out / "best.pt")
-    for name in ("config.json", "train_log.csv"):
-        if (run_dir / name).is_file():
-            shutil.copy2(run_dir / name, out / name)
+    inference = None
+    if args.inference_config:
+        # the settings chosen on the val split; the weights are untouched
+        cfg = load_config(args.inference_config)
+        inference = {"postprocess": dataclasses.asdict(cfg.postprocess),
+                     "infer": dataclasses.asdict(cfg.infer)}
+        checkpoint["config"].update(inference)
+        torch.save(checkpoint, out / "best.pt")
+        config_text = json.dumps(checkpoint["config"], indent=2) + "\n"
+        (out / "config.json").write_text(config_text, encoding="utf-8")
+    else:
+        shutil.copy2(ckpt_path, out / "best.pt")
+        if (run_dir / "config.json").is_file():
+            shutil.copy2(run_dir / "config.json", out / "config.json")
+    if (run_dir / "train_log.csv").is_file():
+        shutil.copy2(run_dir / "train_log.csv", out / "train_log.csv")
 
     export_info = None
     onnx = Path(args.onnx) if args.onnx else run_dir / "model.onnx"
@@ -198,8 +230,11 @@ def stage(args) -> Path:
         shutil.copy2(onnx, out / "model.onnx")
         info_path = onnx.with_name("export_info.json")
         if info_path.is_file():
-            shutil.copy2(info_path, out / "export_info.json")
             export_info = json.loads(info_path.read_text(encoding="utf-8"))
+            if inference:
+                export_info["config"].update(inference)
+            info_text = json.dumps(export_info, indent=2) + "\n"
+            (out / "export_info.json").write_text(info_text, encoding="utf-8")
 
     summary = None
     if args.results:
@@ -223,6 +258,8 @@ def main(argv: list[str] | None = None) -> Path:
     p.add_argument("--run-dir", required=True, help="Training output with best.pt")
     p.add_argument("--results", help="Evaluation output dir (summary.json, figures)")
     p.add_argument("--onnx", help="model.onnx (default: <run-dir>/model.onnx if present)")
+    p.add_argument("--inference-config",
+                   help="YAML whose postprocess/infer sections replace the checkpoint's")
     p.add_argument("--splits", default=str(ROOT / "data" / "splits.json"))
     p.add_argument("--staging", default=str(ROOT / "build" / "hf_upload"))
     p.add_argument("--private", action="store_true")

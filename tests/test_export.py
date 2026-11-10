@@ -119,3 +119,28 @@ def test_card_says_tbd_without_results(tiny_checkpoint, tmp_path):
     card = (staged / "README.md").read_text(encoding="utf-8")
     assert "TBD: not evaluated on the test split yet." in card
     assert "| WT |" not in card
+
+
+def test_upload_applies_inference_config(tiny_checkpoint, tmp_path):
+    import yaml
+
+    from btseg.infer import Predictor
+
+    cfg = Config()
+    cfg.postprocess.region_thresholds = (0.5, 0.3, 0.5)
+    d = cfg.to_dict()
+    d["postprocess"]["region_thresholds"] = list(d["postprocess"]["region_thresholds"])
+    path = tmp_path / "inference.yaml"
+    path.write_text(yaml.safe_dump({"postprocess": d["postprocess"], "infer": d["infer"]}))
+    module = load_upload_script()
+    staged = module.main(["--repo-id", "someone/x", "--run-dir", str(tiny_checkpoint),
+                          "--staging", str(tmp_path / "stage"), "--inference-config", str(path),
+                          "--dry-run"])
+    predictor = Predictor.from_checkpoint(staged / "best.pt", device="cpu")
+    assert predictor.config.postprocess.region_thresholds == (0.5, 0.3, 0.5)
+    assert predictor.config.model.kwargs == {"init_filters": 8}  # rest of the config kept
+    original = torch.load(tiny_checkpoint / "best.pt", weights_only=True)["model"]
+    staged_weights = torch.load(staged / "best.pt", weights_only=True)["model"]
+    assert all(torch.equal(original[k], staged_weights[k]) for k in original)
+    card = (staged / "README.md").read_text(encoding="utf-8")
+    assert "thresholded per region (TC 0.5, WT 0.3, ET 0.5" in card

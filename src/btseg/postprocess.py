@@ -2,7 +2,8 @@
 
 Steps (each controlled by :class:`btseg.config.PostprocessConfig`, so they can be ablated):
 
-1. threshold the probabilities (default 0.5);
+1. threshold the probabilities (default 0.5; optionally one threshold per region, tuned on
+   the validation split);
 2. enforce the hierarchy ET ⊆ TC ⊆ WT by propagating upwards (TC |= ET, WT |= TC),
    the same rule :func:`btseg.data.labels.regions_to_labels` applies;
 3. optionally remove connected components smaller than ``min_component_voxels`` from
@@ -45,7 +46,8 @@ def postprocess(probabilities, cfg: PostprocessConfig | None = None) -> np.ndarr
     probs = np.asarray(probabilities)
     if probs.ndim != 4 or probs.shape[0] != 3:
         raise ValueError(f"Expected (3, H, W, D) probabilities, got {probs.shape}")
-    regions = enforce_hierarchy(probs > cfg.threshold)
+    thresholds = cfg.region_thresholds or (cfg.threshold,) * 3
+    regions = enforce_hierarchy(probs > np.asarray(thresholds, np.float32).reshape(3, 1, 1, 1))
     if cfg.min_component_voxels > 0:
         regions = np.stack([remove_small_components(r, cfg.min_component_voxels) for r in regions])
         regions = enforce_hierarchy(regions)

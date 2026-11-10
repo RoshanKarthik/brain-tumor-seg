@@ -14,9 +14,10 @@ Writes to ``<out-root>/<run_name>`` (``<run_name>_<split>`` for splits other tha
 - ``ablation.csv`` with ``--ablation``: TTA off/on x post-processing off/on, computed
   from the same forward passes (inference-only, no retraining)
 - ``predictions/<case>_seg.nii.gz`` for the main setting (not committed; *.nii.gz ignored)
-- ``pp_grid.csv`` with ``--pp-grid``: mean Dice for a grid of post-processing settings
-  (small-component removal x small-ET -> NCR), computed from the same predictions. Use it
-  on the val split to choose ``--min-component-voxels`` / ``--et-min-voxels`` for test.
+- ``pp_grid.csv`` and ``threshold_grid.csv`` with ``--pp-grid``: mean Dice for a grid of
+  post-processing settings (small-component removal x small-ET -> NCR) and for per-region
+  thresholds, computed from the same predictions. Use them on the val split to choose
+  ``--region-thresholds``, ``--min-component-voxels`` and ``--et-min-voxels`` for test.
 
 Metric conventions for empty masks follow BraTS, see :mod:`btseg.metrics`. The test
 split is meant to be evaluated once, for the final numbers; tune post-processing on val.
@@ -30,6 +31,7 @@ import dataclasses
 import json
 import subprocess
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,6 +64,8 @@ METRIC_NOTE = (
 
 MIN_COMPONENT_GRID = (0, 50, 200, 500)
 ET_MIN_GRID = (0, 100, 300, 500, 800)
+THRESHOLD_GRID = (0.2, 0.3, 0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 0.7)
+PROB_REGIONS = ("TC", "WT", "ET")  # channel order of the probabilities / region masks
 
 
 def _num(x) -> float | None:
@@ -135,13 +139,14 @@ def pick_overlay_cases(mean_dice: list[float], k: int = 2) -> list[tuple[str, in
     return picked
 
 
-def grid_dice(probabilities, gt_regions, threshold: float) -> dict[tuple[int, int], list]:
-    """Dice [WT, TC, ET] for every (min_component_voxels, et_min_voxels) in the grid."""
+def grid_dice(probabilities, gt_regions, base_pp: PostprocessConfig) -> dict:
+    """Dice [WT, TC, ET] for every (min_component_voxels, et_min_voxels) in the grid,
+    using the thresholds of ``base_pp``."""
     out = {}
     for min_component in MIN_COMPONENT_GRID:
         base = postprocess(
-            probabilities, PostprocessConfig(threshold=threshold,
-                                             min_component_voxels=min_component)
+            probabilities,
+            replace(base_pp, min_component_voxels=min_component, et_min_voxels=0),
         )
         for et_min in ET_MIN_GRID:
             regions = base.copy()  # same small-ET rule as btseg.postprocess
@@ -150,6 +155,19 @@ def grid_dice(probabilities, gt_regions, threshold: float) -> dict[tuple[int, in
             out[(min_component, et_min)] = [
                 dice(regions[i], gt_regions[i]) for i in (1, 0, 2)  # WT, TC, ET
             ]
+    return out
+
+
+def threshold_dice(probabilities, gt_regions) -> dict[tuple[str, float], float]:
+    """Dice of each region when only that region's threshold is changed (others at 0.5)."""
+    out = {}
+    for i, region in enumerate(PROB_REGIONS):
+        for t in THRESHOLD_GRID:
+            thresholds = [0.5, 0.5, 0.5]
+            thresholds[i] = t
+            regions = postprocess(probabilities,
+                                  PostprocessConfig(region_thresholds=tuple(thresholds)))
+            out[(region, t)] = dice(regions[i], gt_regions[i])
     return out
 
 
@@ -173,7 +191,7 @@ def evaluate(
     main_name = "main"
     variants = {main_name: (tta, cfg.postprocess)}
     if ablation:
-        threshold_only = PostprocessConfig(threshold=cfg.postprocess.threshold)
+        threshold_only = PostprocessConfig()  # plain 0.5 threshold, nothing tuned
         full = pp_variant or cfg.postprocess
         for use_tta in (False, True):
             prefix = "tta" if use_tta else "no_tta"
@@ -181,6 +199,7 @@ def evaluate(
             variants[f"{prefix}+postprocess"] = (use_tta, full)
     rows: dict[str, list[dict]] = {name: [] for name in variants}
     grid: dict[tuple[int, int], list] = {}
+    thr_grid: dict[tuple[str, float], list] = {}
     seconds = []
 
     for n, case in enumerate(cases, start=1):
@@ -192,8 +211,10 @@ def evaluate(
         if pp_grid:
             probs = maps.tta_mean if tta else maps.plain
             gt_regions = labels_to_regions(gt, et)
-            for key, d in grid_dice(probs, gt_regions, cfg.postprocess.threshold).items():
+            for key, d in grid_dice(probs, gt_regions, cfg.postprocess).items():
                 grid.setdefault(key, []).append(d)
+            for key, d in threshold_dice(probs, gt_regions).items():
+                thr_grid.setdefault(key, []).append(d)
         for name, (use_tta, pp) in variants.items():
             labels = predictor.labels_from(maps.tta_mean if use_tta else maps.plain, pp)
             if name == main_name:
@@ -268,6 +289,11 @@ def evaluate(
             table.append(entry)
         table.sort(key=lambda e: -e["dice_mean_of_regions"])
         _write_csv(out_dir / "pp_grid.csv", table)
+        _write_csv(out_dir / "threshold_grid.csv", [
+            {"region": region, "threshold": t, "tta": tta,
+             "dice_mean": round(float(np.mean(values)), 4)}
+            for (region, t), values in thr_grid.items()
+        ])
 
     plot_dice_boxplot({r: col[f"dice_{r}"] for r in EVAL_REGIONS}, out_dir / "dice_boxplot.png")
     pred = {r: col[f"vol_pred_{r}"] for r in VOLUME_REGIONS}
@@ -304,6 +330,8 @@ def main(argv: list[str] | None = None) -> dict:
                    help="Ablation 'postprocess' variant if the config disables it (voxels)")
     p.add_argument("--pp-et-min", type=int, default=500,
                    help="Ablation 'postprocess' variant if the config disables it (voxels)")
+    p.add_argument("--region-thresholds", type=float, nargs=3, metavar=("TC", "WT", "ET"),
+                   help="Override postprocess.region_thresholds for the main setting")
     p.add_argument("--min-component-voxels", type=int,
                    help="Override postprocess.min_component_voxels for the main setting")
     p.add_argument("--et-min-voxels", type=int,
@@ -316,6 +344,8 @@ def main(argv: list[str] | None = None) -> dict:
 
     predictor = Predictor.from_checkpoint(args.ckpt, device=args.device, filename=args.filename)
     cfg = predictor.config
+    if args.region_thresholds is not None:
+        cfg.postprocess.region_thresholds = tuple(args.region_thresholds)
     if args.min_component_voxels is not None:
         cfg.postprocess.min_component_voxels = args.min_component_voxels
     if args.et_min_voxels is not None:
@@ -328,9 +358,8 @@ def main(argv: list[str] | None = None) -> dict:
     )[: args.max_cases]
 
     pp_variant = None
-    if args.ablation and cfg.postprocess == PostprocessConfig(threshold=cfg.postprocess.threshold):
+    if args.ablation and cfg.postprocess == PostprocessConfig():
         pp_variant = PostprocessConfig(
-            threshold=cfg.postprocess.threshold,
             min_component_voxels=args.pp_min_component,
             et_min_voxels=args.pp_et_min,
         )

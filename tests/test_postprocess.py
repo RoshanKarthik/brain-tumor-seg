@@ -68,3 +68,12 @@ def test_enforce_hierarchy_does_not_remove():
     r[2, 0, 0, 0] = True
     out = enforce_hierarchy(r)
     assert out[:, 0, 0, 0].all()
+
+
+def test_region_thresholds_override_the_global_threshold():
+    probs = blank()
+    probs[1, 2:6, 2:6, 2:6] = 0.4  # WT probability below 0.5
+    assert postprocess(probs)[1].sum() == 0
+    cfg = PostprocessConfig(region_thresholds=(0.5, 0.35, 0.5))
+    tc, wt, et = postprocess(probs, cfg)
+    assert wt.sum() == 64 and tc.sum() == 0 and et.sum() == 0

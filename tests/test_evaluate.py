@@ -151,8 +151,42 @@ def test_grid_matches_postprocess():
     rng = np.random.default_rng(0)
     probs = rng.random((3, 24, 24, 24)).astype(np.float32) ** 3
     gt = probs > 0.4
-    results = grid_dice(probs, gt, 0.5)
+    results = grid_dice(probs, gt, PostprocessConfig())
     for (mc, em), values in results.items():
         r = postprocess(probs, PostprocessConfig(min_component_voxels=mc, et_min_voxels=em))
         expected = [dice(r[i], gt[i]) for i in (1, 0, 2)]
         assert values == pytest.approx(expected)
+
+
+def test_threshold_sweep_matches_postprocess():
+    from btseg.config import PostprocessConfig
+    from btseg.evaluate import THRESHOLD_GRID, threshold_dice
+    from btseg.metrics import dice
+    from btseg.postprocess import postprocess
+
+    rng = np.random.default_rng(1)
+    probs = rng.random((3, 20, 20, 20)).astype(np.float32)
+    gt = probs > 0.45
+    out = threshold_dice(probs, gt)
+    assert len(out) == 3 * len(THRESHOLD_GRID)
+    r = postprocess(probs, PostprocessConfig(region_thresholds=(0.5, 0.3, 0.5)))
+    assert out[("WT", 0.3)] == pytest.approx(dice(r[1], gt[1]))
+
+
+def test_region_threshold_override_and_threshold_grid(mini_split, tmp_path):
+    root, _ = mini_split
+    splits = tmp_path / "splits.json"
+    splits.write_text(json.dumps({"train": [], "val": ["case0"], "test": ["case1"]}))
+    cfg = Config(run_name="tiny")
+    cfg.model.kwargs = {"init_filters": 8}
+    ckpt = tmp_path / "best.pt"
+    torch.manual_seed(0)
+    torch.save({"model": build_model("segresnet", init_filters=8).state_dict(),
+                "config": cfg.to_dict()}, ckpt)
+    common = ["--ckpt", str(ckpt), "--data-root", str(root), "--splits", str(splits),
+              "--out-root", str(tmp_path / "results"), "--device", "cpu"]
+    main([*common, "--split", "val", "--pp-grid"])
+    rows = read_csv(tmp_path / "results" / "tiny_val" / "threshold_grid.csv")
+    assert {r["region"] for r in rows} == {"TC", "WT", "ET"}
+    summary = main([*common, "--split", "test", "--region-thresholds", "0.5", "0.4", "0.5"])
+    assert list(summary["postprocess"]["region_thresholds"]) == [0.5, 0.4, 0.5]

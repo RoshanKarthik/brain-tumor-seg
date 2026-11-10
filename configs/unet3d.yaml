@@ -37,5 +37,6 @@ infer:
 
 postprocess:              # each step can be switched off for ablations
   threshold: 0.5
+  region_thresholds: null # [TC, WT, ET] tuned on the val split; null = threshold
   min_component_voxels: 0 # 0 = off
   et_min_voxels: 0        # 0 = off

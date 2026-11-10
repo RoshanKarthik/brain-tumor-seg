@@ -58,6 +58,8 @@ class InferConfig:
 @dataclass
 class PostprocessConfig:
     threshold: float = 0.5
+    # per-region thresholds [TC, WT, ET]; None = use ``threshold`` for all three
+    region_thresholds: tuple[float, float, float] | None = None
     min_component_voxels: int = 0  # 0 = off; drop smaller connected components per region
     et_min_voxels: int = 0  # 0 = off; if all predicted ET is smaller, relabel it as NCR
 
@@ -84,7 +86,12 @@ _SECTIONS = {
     "infer": InferConfig,
     "postprocess": PostprocessConfig,
 }
-_TUPLE_FIELDS = {("data", "roi_size"), ("data", "pixdim"), ("infer", "roi_size")}
+_TUPLE_FIELDS = {
+    ("data", "roi_size"),
+    ("data", "pixdim"),
+    ("infer", "roi_size"),
+    ("postprocess", "region_thresholds"),
+}
 
 
 def _check_keys(where: str, given: dict, cls) -> None:
@@ -104,7 +111,7 @@ def config_from_dict(raw: dict[str, Any]) -> Config:
         values = dict(raw.pop(name, None) or {})
         _check_keys(name, values, cls)
         for key in values:
-            if (name, key) in _TUPLE_FIELDS:
+            if (name, key) in _TUPLE_FIELDS and values[key] is not None:
                 values[key] = tuple(values[key])
         sections[name] = cls(**values)
     return Config(**raw, **sections)

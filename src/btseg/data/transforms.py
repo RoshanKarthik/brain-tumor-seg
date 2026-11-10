@@ -89,6 +89,36 @@ def _normalize() -> list:
     ]
 
 
+def train_fixed_part(pixdim: Sequence[float] = DEFAULT_PIXDIM) -> list:
+    """Deterministic start of the train pipeline: load, RAS, resample, crop to the brain.
+
+    Its output can be cached on disk once (:mod:`btseg.data.cache`).
+    """
+    keys = ["image", "label"]
+    return _load_and_resample(keys, pixdim, keep_dtype=True) + [
+        CropForegroundd(keys=keys, source_key="image", allow_smaller=True)
+    ]
+
+
+def train_random_part(
+    roi_size: Sequence[int] = DEFAULT_ROI, et_label: int = 4, crops_per_case: int = 1
+) -> list:
+    """Per-epoch part of the train pipeline: normalize, regions, pad, random crops, augment."""
+    keys = ["image", "label"]
+    return _normalize() + [
+        LabelsToRegionsd(keys="label", et_label=et_label),
+        SpatialPadd(keys=keys, spatial_size=tuple(roi_size)),
+        RandSpatialCropSamplesd(
+            keys=keys, roi_size=tuple(roi_size), num_samples=crops_per_case, random_size=False
+        ),
+        RandFlipd(keys=keys, prob=0.5, spatial_axis=0),
+        RandFlipd(keys=keys, prob=0.5, spatial_axis=1),
+        RandFlipd(keys=keys, prob=0.5, spatial_axis=2),
+        RandScaleIntensityd(keys="image", factors=0.1, prob=1.0),
+        RandShiftIntensityd(keys="image", offsets=0.1, prob=1.0),
+    ]
+
+
 def get_train_transforms(
     roi_size: Sequence[int] = DEFAULT_ROI,
     et_label: int = 4,
@@ -96,23 +126,8 @@ def get_train_transforms(
     crops_per_case: int = 1,
 ) -> Compose:
     """Returns a list of ``crops_per_case`` dicts per case (MONAI's collate flattens it)."""
-    keys = ["image", "label"]
     return Compose(
-        _load_and_resample(keys, pixdim, keep_dtype=True)
-        + [CropForegroundd(keys=keys, source_key="image", allow_smaller=True)]
-        + _normalize()
-        + [
-            LabelsToRegionsd(keys="label", et_label=et_label),
-            SpatialPadd(keys=keys, spatial_size=tuple(roi_size)),
-            RandSpatialCropSamplesd(
-                keys=keys, roi_size=tuple(roi_size), num_samples=crops_per_case, random_size=False
-            ),
-            RandFlipd(keys=keys, prob=0.5, spatial_axis=0),
-            RandFlipd(keys=keys, prob=0.5, spatial_axis=1),
-            RandFlipd(keys=keys, prob=0.5, spatial_axis=2),
-            RandScaleIntensityd(keys="image", factors=0.1, prob=1.0),
-            RandShiftIntensityd(keys="image", offsets=0.1, prob=1.0),
-        ]
+        train_fixed_part(pixdim) + train_random_part(roi_size, et_label, crops_per_case)
     )
 
 

@@ -25,13 +25,14 @@ from pathlib import Path
 
 import numpy as np
 import torch
-from monai.data import DataLoader
+from monai.data import DataLoader, Dataset
 from monai.inferers import sliding_window_inference
 from monai.metrics import DiceMetric
 from monai.utils import set_determinism
 
 import btseg
 from btseg.config import Config, load_config
+from btseg.data.cache import build_cache, get_cached_train_transforms
 from btseg.data.dataset import build_dataset, load_splits, select_split
 from btseg.data.discover import discover_cases
 from btseg.data.labels import REGIONS
@@ -142,6 +143,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p.add_argument("--max-train-cases", type=int, help="Use only the first N train cases")
     p.add_argument("--max-val-cases", type=int, help="Use only the first N val cases")
     p.add_argument(
+        "--cache-dir",
+        type=Path,
+        help="Cache the decompressed, brain-cropped train cases here once (much faster "
+        "epochs when data loading is the bottleneck; identical samples)",
+    )
+    p.add_argument(
         "--time-limit-hours",
         type=float,
         help="Stop between epochs before this wall-clock budget runs out",
@@ -181,11 +188,25 @@ def main(argv: list[str] | None = None) -> dict:
     cases = discover_cases(args.data_root, require_seg=True)
     train_cases = select_split(cases, splits, "train")[: args.max_train_cases]
     val_cases = select_split(cases, splits, "val")[: args.max_val_cases]
-    train_tf = get_train_transforms(
-        cfg.data.roi_size, cfg.data.et_label, cfg.data.pixdim, cfg.data.crops_per_case
-    )
+    train_ds = None
+    if args.cache_dir:
+        t_cache = time.time()
+        try:
+            items = build_cache(train_cases, args.cache_dir, cfg.data.pixdim,
+                                workers=max(1, cfg.data.num_workers))
+            tf = get_cached_train_transforms(cfg.data.roi_size, cfg.data.et_label,
+                                             cfg.data.crops_per_case)
+            train_ds = Dataset(data=items, transform=tf)
+            print(f"Training cache ready in {time.time() - t_cache:.0f}s ({args.cache_dir})")
+        except OSError as exc:
+            print(f"Training without cache: {exc}")
+    if train_ds is None:
+        train_tf = get_train_transforms(
+            cfg.data.roi_size, cfg.data.et_label, cfg.data.pixdim, cfg.data.crops_per_case
+        )
+        train_ds = build_dataset(train_cases, train_tf)
     train_loader = DataLoader(
-        build_dataset(train_cases, train_tf),
+        train_ds,
         batch_size=cfg.data.batch_size,
         shuffle=True,
         num_workers=cfg.data.num_workers,

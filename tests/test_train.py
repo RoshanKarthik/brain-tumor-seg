@@ -95,3 +95,12 @@ def test_missing_splits_file_fails(run_setup, tmp_path):
     args[args.index("--splits") + 1] = str(tmp_path / "nope.json")
     with pytest.raises(FileNotFoundError, match="make_splits"):
         main(args)
+
+
+def test_training_with_cache(run_setup, tmp_path):
+    args, out = run_setup
+    cache = tmp_path / "cache"
+    result = main([*args, "--cache-dir", str(cache)])
+    assert result["epochs_done"] == 1
+    assert len(list(cache.glob("*_image.npy"))) == 2  # both train cases cached
+    assert (out / "last.pt").exists()

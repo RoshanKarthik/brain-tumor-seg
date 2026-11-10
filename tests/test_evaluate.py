@@ -114,3 +114,45 @@ def test_pick_overlay_cases():
     assert idx[:2] == [6, 1] and idx[4:] == [0, 4]
     assert len(set(idx)) == 6
     assert len(pick_overlay_cases([0.5, 0.6])) == 2  # fewer cases than slots, no repeats
+
+
+def test_pp_grid_and_postprocess_overrides(mini_split, tmp_path):
+    root, _ = mini_split
+    splits = tmp_path / "splits.json"
+    splits.write_text(json.dumps({"train": [], "val": ["case0", "case1"], "test": ["case2"]}))
+    cfg = Config(run_name="tiny")
+    cfg.model.kwargs = {"init_filters": 8}
+    ckpt = tmp_path / "best.pt"
+    torch.manual_seed(0)
+    torch.save({"model": build_model("segresnet", init_filters=8).state_dict(),
+                "config": cfg.to_dict()}, ckpt)
+    common = ["--ckpt", str(ckpt), "--data-root", str(root), "--splits", str(splits),
+              "--out-root", str(tmp_path / "results"), "--device", "cpu"]
+
+    main([*common, "--split", "val", "--pp-grid"])
+    grid = read_csv(tmp_path / "results" / "tiny_val" / "pp_grid.csv")
+    assert len(grid) == 4 * 5
+    assert {(int(g["min_component_voxels"]), int(g["et_min_voxels"])) for g in grid} >= {(0, 0)}
+    means = [float(g["dice_mean_of_regions"]) for g in grid]
+    assert means == sorted(means, reverse=True)
+
+    summary = main([*common, "--split", "test", "--min-component-voxels", "200",
+                    "--et-min-voxels", "300"])
+    assert summary["postprocess"]["min_component_voxels"] == 200
+    assert summary["postprocess"]["et_min_voxels"] == 300
+
+
+def test_grid_matches_postprocess():
+    from btseg.config import PostprocessConfig
+    from btseg.evaluate import grid_dice
+    from btseg.metrics import dice
+    from btseg.postprocess import postprocess
+
+    rng = np.random.default_rng(0)
+    probs = rng.random((3, 24, 24, 24)).astype(np.float32) ** 3
+    gt = probs > 0.4
+    results = grid_dice(probs, gt, 0.5)
+    for (mc, em), values in results.items():
+        r = postprocess(probs, PostprocessConfig(min_component_voxels=mc, et_min_voxels=em))
+        expected = [dice(r[i], gt[i]) for i in (1, 0, 2)]
+        assert values == pytest.approx(expected)

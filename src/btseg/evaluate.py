@@ -14,6 +14,9 @@ Writes to ``<out-root>/<run_name>`` (``<run_name>_<split>`` for splits other tha
 - ``ablation.csv`` with ``--ablation``: TTA off/on x post-processing off/on, computed
   from the same forward passes (inference-only, no retraining)
 - ``predictions/<case>_seg.nii.gz`` for the main setting (not committed; *.nii.gz ignored)
+- ``pp_grid.csv`` with ``--pp-grid``: mean Dice for a grid of post-processing settings
+  (small-component removal x small-ET -> NCR), computed from the same predictions. Use it
+  on the val split to choose ``--min-component-voxels`` / ``--et-min-voxels`` for test.
 
 Metric conventions for empty masks follow BraTS, see :mod:`btseg.metrics`. The test
 split is meant to be evaluated once, for the final numbers; tune post-processing on val.
@@ -38,8 +41,10 @@ import btseg
 from btseg.config import PostprocessConfig
 from btseg.data.dataset import load_splits, select_split
 from btseg.data.discover import SEQUENCES, discover_cases
+from btseg.data.labels import labels_to_regions
 from btseg.infer import Predictor, save_label_map
-from btseg.metrics import BRATS_HD95_ONE_EMPTY, EVAL_REGIONS, region_metrics
+from btseg.metrics import BRATS_HD95_ONE_EMPTY, EVAL_REGIONS, dice, region_metrics
+from btseg.postprocess import postprocess
 from btseg.viz import (
     plot_bland_altman,
     plot_case_overlays,
@@ -53,6 +58,10 @@ METRIC_NOTE = (
     f"empty, Dice 0 / HD95 {BRATS_HD95_ONE_EMPTY} mm if exactly one is empty. HD95 is MONAI's "
     "symmetric 95th-percentile Hausdorff distance in mm."
 )
+
+
+MIN_COMPONENT_GRID = (0, 50, 200, 500)
+ET_MIN_GRID = (0, 100, 300, 500, 800)
 
 
 def _num(x) -> float | None:
@@ -126,6 +135,24 @@ def pick_overlay_cases(mean_dice: list[float], k: int = 2) -> list[tuple[str, in
     return picked
 
 
+def grid_dice(probabilities, gt_regions, threshold: float) -> dict[tuple[int, int], list]:
+    """Dice [WT, TC, ET] for every (min_component_voxels, et_min_voxels) in the grid."""
+    out = {}
+    for min_component in MIN_COMPONENT_GRID:
+        base = postprocess(
+            probabilities, PostprocessConfig(threshold=threshold,
+                                             min_component_voxels=min_component)
+        )
+        for et_min in ET_MIN_GRID:
+            regions = base.copy()  # same small-ET rule as btseg.postprocess
+            if et_min > 0 and 0 < regions[2].sum() < et_min:
+                regions[2] = False
+            out[(min_component, et_min)] = [
+                dice(regions[i], gt_regions[i]) for i in (1, 0, 2)  # WT, TC, ET
+            ]
+    return out
+
+
 def evaluate(
     predictor: Predictor,
     cases: list[dict],
@@ -134,6 +161,7 @@ def evaluate(
     ablation: bool = False,
     pp_variant: PostprocessConfig | None = None,
     provenance: dict | None = None,
+    pp_grid: bool = False,
 ) -> dict:
     cfg = predictor.config
     et = cfg.data.et_label
@@ -152,6 +180,7 @@ def evaluate(
             variants[f"{prefix}+threshold_only"] = (use_tta, threshold_only)
             variants[f"{prefix}+postprocess"] = (use_tta, full)
     rows: dict[str, list[dict]] = {name: [] for name in variants}
+    grid: dict[tuple[int, int], list] = {}
     seconds = []
 
     for n, case in enumerate(cases, start=1):
@@ -160,6 +189,11 @@ def evaluate(
         seconds.append(time.perf_counter() - t0)
         gt = np.rint(nib.load(case["seg"]).get_fdata()).astype(np.uint8)
         gt_vol = region_volumes(gt, maps.affine, et)
+        if pp_grid:
+            probs = maps.tta_mean if tta else maps.plain
+            gt_regions = labels_to_regions(gt, et)
+            for key, d in grid_dice(probs, gt_regions, cfg.postprocess.threshold).items():
+                grid.setdefault(key, []).append(d)
         for name, (use_tta, pp) in variants.items():
             labels = predictor.labels_from(maps.tta_mean if use_tta else maps.plain, pp)
             if name == main_name:
@@ -223,6 +257,18 @@ def evaluate(
             table.append(entry)
         _write_csv(out_dir / "ablation.csv", table)
 
+    if pp_grid:
+        table = []
+        for (min_component, et_min), values in grid.items():
+            v = np.asarray(values)
+            entry = {"min_component_voxels": min_component, "et_min_voxels": et_min, "tta": tta}
+            entry.update({f"dice_{r}_mean": round(float(v[:, i].mean()), 4)
+                          for i, r in enumerate(EVAL_REGIONS)})
+            entry["dice_mean_of_regions"] = round(float(v.mean()), 4)
+            table.append(entry)
+        table.sort(key=lambda e: -e["dice_mean_of_regions"])
+        _write_csv(out_dir / "pp_grid.csv", table)
+
     plot_dice_boxplot({r: col[f"dice_{r}"] for r in EVAL_REGIONS}, out_dir / "dice_boxplot.png")
     pred = {r: col[f"vol_pred_{r}"] for r in VOLUME_REGIONS}
     gt = {r: col[f"vol_gt_{r}"] for r in VOLUME_REGIONS}
@@ -258,12 +304,22 @@ def main(argv: list[str] | None = None) -> dict:
                    help="Ablation 'postprocess' variant if the config disables it (voxels)")
     p.add_argument("--pp-et-min", type=int, default=500,
                    help="Ablation 'postprocess' variant if the config disables it (voxels)")
+    p.add_argument("--min-component-voxels", type=int,
+                   help="Override postprocess.min_component_voxels for the main setting")
+    p.add_argument("--et-min-voxels", type=int,
+                   help="Override postprocess.et_min_voxels for the main setting")
+    p.add_argument("--pp-grid", action="store_true",
+                   help="Also score a grid of post-processing settings (Dice only)")
     p.add_argument("--max-cases", type=int, help="Only the first N cases (smoke tests)")
     p.add_argument("--device", default="auto")
     args = p.parse_args(argv)
 
     predictor = Predictor.from_checkpoint(args.ckpt, device=args.device, filename=args.filename)
     cfg = predictor.config
+    if args.min_component_voxels is not None:
+        cfg.postprocess.min_component_voxels = args.min_component_voxels
+    if args.et_min_voxels is not None:
+        cfg.postprocess.et_min_voxels = args.et_min_voxels
     run_name = args.run_name or cfg.run_name
     if args.split != "test":
         run_name = f"{run_name}_{args.split}"
@@ -291,7 +347,7 @@ def main(argv: list[str] | None = None) -> dict:
     print(f"Evaluating {cfg.model.name} on {len(cases)} {args.split} cases -> "
           f"{args.out_root / run_name}")
     summary = evaluate(predictor, cases, args.out_root / run_name, args.tta, args.ablation,
-                       pp_variant, provenance)
+                       pp_variant, provenance, args.pp_grid)
     print("Dice " + ", ".join(
         f"{r} {summary['dice'][r]['mean']:.4f}" for r in EVAL_REGIONS
     ) + f" | mean {summary['dice']['mean_of_regions']:.4f}")

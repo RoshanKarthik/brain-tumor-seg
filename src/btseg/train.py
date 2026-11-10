@@ -193,9 +193,9 @@ def main(argv: list[str] | None = None) -> dict:
         t_cache = time.time()
         try:
             items = build_cache(train_cases, args.cache_dir, cfg.data.pixdim,
-                                workers=max(1, cfg.data.num_workers))
-            tf = get_cached_train_transforms(cfg.data.roi_size, cfg.data.et_label,
-                                             cfg.data.crops_per_case)
+                                workers=max(1, cfg.data.num_workers),
+                                et_label=cfg.data.et_label)
+            tf = get_cached_train_transforms(cfg.data.roi_size, cfg.data.crops_per_case)
             train_ds = Dataset(data=items, transform=tf)
             print(f"Training cache ready in {time.time() - t_cache:.0f}s ({args.cache_dir})")
         except OSError as exc:

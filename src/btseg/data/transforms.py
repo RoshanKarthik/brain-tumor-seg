@@ -89,24 +89,22 @@ def _normalize() -> list:
     ]
 
 
-def train_fixed_part(pixdim: Sequence[float] = DEFAULT_PIXDIM) -> list:
-    """Deterministic start of the train pipeline: load, RAS, resample, crop to the brain.
-
-    Its output can be cached on disk once (:mod:`btseg.data.cache`).
-    """
+def train_fixed_part(pixdim: Sequence[float] = DEFAULT_PIXDIM, et_label: int = 4) -> list:
+    """Deterministic start of the train pipeline: load, RAS, resample, crop to the brain,
+    z-score, labels -> regions. Its output can be cached on disk once (btseg.data.cache)."""
     keys = ["image", "label"]
-    return _load_and_resample(keys, pixdim, keep_dtype=True) + [
-        CropForegroundd(keys=keys, source_key="image", allow_smaller=True)
-    ]
+    return (
+        _load_and_resample(keys, pixdim, keep_dtype=True)
+        + [CropForegroundd(keys=keys, source_key="image", allow_smaller=True)]
+        + _normalize()
+        + [LabelsToRegionsd(keys="label", et_label=et_label)]
+    )
 
 
-def train_random_part(
-    roi_size: Sequence[int] = DEFAULT_ROI, et_label: int = 4, crops_per_case: int = 1
-) -> list:
-    """Per-epoch part of the train pipeline: normalize, regions, pad, random crops, augment."""
+def train_random_part(roi_size: Sequence[int] = DEFAULT_ROI, crops_per_case: int = 1) -> list:
+    """Per-epoch part of the train pipeline: pad, random crops, flips, intensity jitter."""
     keys = ["image", "label"]
-    return _normalize() + [
-        LabelsToRegionsd(keys="label", et_label=et_label),
+    return [
         SpatialPadd(keys=keys, spatial_size=tuple(roi_size)),
         RandSpatialCropSamplesd(
             keys=keys, roi_size=tuple(roi_size), num_samples=crops_per_case, random_size=False
@@ -127,7 +125,7 @@ def get_train_transforms(
 ) -> Compose:
     """Returns a list of ``crops_per_case`` dicts per case (MONAI's collate flattens it)."""
     return Compose(
-        train_fixed_part(pixdim) + train_random_part(roi_size, et_label, crops_per_case)
+        train_fixed_part(pixdim, et_label) + train_random_part(roi_size, crops_per_case)
     )
 
 

@@ -27,9 +27,9 @@ def test_cached_pipeline_gives_identical_samples(tmp_path, kind):
     case = make_integer_case(tmp_path) if kind == "int16" else write_case(
         tmp_path / "f", "floatcase", shape=(48, 44, 40))
     (item,) = build_cache([case], tmp_path / "cache", workers=1)
-    stored = np.load(item["image"])
-    assert stored.dtype == (np.int16 if kind == "int16" else np.float32)
-    assert np.load(item["label"]).dtype == np.uint8
+    assert np.load(item["image"]).dtype == np.float32
+    label = np.load(item["label"])
+    assert label.dtype == np.uint8 and label.shape[0] == 3  # [TC, WT, ET] regions
 
     plain = get_train_transforms(roi_size=(32, 32, 32), crops_per_case=2)
     cached = get_cached_train_transforms(roi_size=(32, 32, 32), crops_per_case=2)

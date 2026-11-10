@@ -5,8 +5,8 @@
 
 Builds ``build/space/`` with app.py, requirements.txt, README.md (model repo filled in),
 model_repo.txt (read by app.py at startup) and a copy of ``src/btseg``. Without --dry-run
-it creates the Space if needed (Gradio SDK) and uploads the folder; log in first with
-``hf auth login``. ZeroGPU itself is chosen afterwards in the Space's Settings.
+it creates the Space if needed (Gradio SDK on ZeroGPU hardware: free accounts may not host
+Gradio Spaces on cpu-basic) and uploads the folder; log in first with ``hf auth login``.
 """
 
 from __future__ import annotations
@@ -41,6 +41,8 @@ def main(argv: list[str] | None = None) -> Path:
     p.add_argument("--space-id", required=True, help="<hf-user>/<space-name>")
     p.add_argument("--model-repo", required=True, help="<hf-user>/<model-repo> with best.pt")
     p.add_argument("--out", type=Path, default=ROOT / "build" / "space")
+    p.add_argument("--hardware", default="zero-a10g",
+                   help="Space hardware at creation (zero-a10g = ZeroGPU)")
     p.add_argument("--private", action="store_true")
     p.add_argument("--dry-run", action="store_true", help="Build the folder, upload nothing")
     args = p.parse_args(argv)
@@ -57,11 +59,10 @@ def main(argv: list[str] | None = None) -> Path:
 
     api = HfApi()
     api.create_repo(args.space_id, repo_type="space", space_sdk="gradio",
-                    private=args.private, exist_ok=True)
+                    space_hardware=args.hardware, private=args.private, exist_ok=True)
     api.upload_folder(folder_path=str(folder), repo_id=args.space_id, repo_type="space",
                       commit_message="Deploy app")
-    print(f"Uploaded to https://huggingface.co/spaces/{args.space_id}\n"
-          "Next: in the Space's Settings, set the hardware to ZeroGPU.")
+    print(f"Uploaded to https://huggingface.co/spaces/{args.space_id}")
     return folder
 
 

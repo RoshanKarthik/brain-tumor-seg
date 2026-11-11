@@ -51,7 +51,7 @@ def test_run_and_viewer_end_to_end(monkeypatch, tiny_ckpt, tmp_path):
                       affine=np.diag([-1.2, -1.2, 2.0, 1.0]), with_seg=False)
     files = [case[s] for s in SEQUENCES]
 
-    state, image, slider, show_unc, table, info, downloads = app.run(*files, True)
+    state, image, slider, show_unc, table, info, downloads, model3d = app.run(*files, True)
 
     assert image.dtype == np.uint8 and image.ndim == 3 and image.shape[2] == 3
     assert state["labels"].shape == (40, 36, 24)  # original image space
@@ -60,7 +60,9 @@ def test_run_and_viewer_end_to_end(monkeypatch, tiny_ckpt, tmp_path):
     assert [row[0] for row in table] == ["NCR", "ED", "ET", "TC", "WT"]
     assert "CPU" in info and "with test-time augmentation" in info
 
-    seg_path, json_path, csv_path = (Path(p) for p in downloads)
+    seg_path, json_path, csv_path, glb_path = (Path(p) for p in downloads)
+    assert glb_path.name == "tumor_3d.glb" and model3d == str(glb_path)
+    assert glb_path.read_bytes()[:4] == b"glTF"  # at least the brain outline
     seg = nib.load(seg_path)
     assert seg.shape == (40, 36, 24)
     np.testing.assert_allclose(seg.affine, nib.load(case["flair"]).affine)

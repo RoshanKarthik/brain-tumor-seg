@@ -146,9 +146,12 @@ BraTS), runs the model on a ZeroGPU GPU and shows:
 - an axial / coronal / sagittal slice viewer with a color overlay and opacity slider,
   starting at the slice with the largest tumor area;
 - an uncertainty heatmap when TTA is on;
+- a rotatable **3D view** of the tumor inside a translucent brain outline (necrotic core,
+  enhancing tumor and edema as nested surfaces, true to scale in mm; built with marching
+  cubes in [`btseg/mesh.py`](src/btseg/mesh.py));
 - the volume table (NCR, ED, ET, TC, WT in cm³);
-- downloads: `segmentation.nii.gz` (BraTS labels, original image space) and a report
-  (JSON / CSV).
+- downloads: `segmentation.nii.gz` (BraTS labels, original image space), a report
+  (JSON / CSV) and the 3D model (`tumor_3d.glb`).
 
 Inputs are validated (all four present, 3D, same shape and matching affines). The app
 also runs locally on CPU: `python app/app.py`.
@@ -164,6 +167,7 @@ src/btseg/            the package: all logic lives here
   postprocess.py      thresholds, region hierarchy, optional component filtering
   volumetrics.py      region volumes in cm³
   metrics.py          Dice / HD95 with BraTS edge cases
+  mesh.py             3D surface meshes (.glb) for the app
   evaluate.py         test-split evaluation, ablations, figures -> results/
   export.py           ONNX export + parity check
 app/                  Gradio app for the Hugging Face Space

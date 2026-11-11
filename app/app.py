@@ -29,6 +29,7 @@ from btseg.config import Config
 from btseg.data.discover import SEQUENCES
 from btseg.data.labels import regions_to_labels
 from btseg.infer import Predictor, save_label_map, validate_inputs
+from btseg.mesh import segmentation_glb
 from btseg.models.factory import build_model
 from btseg.postprocess import postprocess
 from btseg.viz import AXES, largest_tumor_slice, normalize_for_display, overlay, take_slice
@@ -113,11 +114,9 @@ def run(flair, t1, t1ce, t2, tta):
     volumes = region_volumes(labels, maps.affine, et_label)
     device = "GPU" if torch.cuda.is_available() else "CPU"
 
+    raw = {s: nib.load(p).get_fdata() for s, p in zip(SEQUENCES, paths, strict=True)}
     state = {
-        "images": {
-            s: normalize_for_display(nib.load(p).get_fdata()).astype(np.float16)
-            for s, p in zip(SEQUENCES, paths, strict=True)
-        },
+        "images": {s: normalize_for_display(v).astype(np.float16) for s, v in raw.items()},
         "labels": labels,
         "uncertainty": None if maps.tta_variance is None
         else np.clip(maps.tta_variance.max(axis=0) / 0.25, 0, 1).astype(np.float16),
@@ -138,6 +137,9 @@ def run(flair, t1, t1ce, t2, tta):
         "labels": {"1": "NCR (necrotic core)", "2": "ED (edema)", str(et_label): "ET (enhancing)"},
         "volumes": volumes,
     }
+    # 3D view: brain outline (nonzero FLAIR voxels) + tumor surfaces, in true mm
+    mesh_path = segmentation_glb(labels, maps.affine, out_dir / "tumor_3d.glb", et_label,
+                                 brain_mask=raw["flair"] != 0)
     json_path = out_dir / "report.json"
     json_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     csv_path = out_dir / "report.csv"
@@ -158,8 +160,9 @@ def run(flair, t1, t1ce, t2, tta):
     slider = gr.update(minimum=0, maximum=labels.shape[axis] - 1, value=index, step=1)
     show_unc = gr.update(interactive=state["uncertainty"] is not None,
                          value=False)
-    return state, image, slider, show_unc, table, info, [str(seg_path), str(json_path),
-                                                          str(csv_path)]
+    downloads = [str(p) for p in (seg_path, json_path, csv_path, mesh_path) if p]
+    model3d = str(mesh_path) if mesh_path else None
+    return state, image, slider, show_unc, table, info, downloads, model3d
 
 
 def render(state, plane, index, sequence, opacity, show_uncertainty):
@@ -228,13 +231,22 @@ def build_ui() -> gr.Blocks:
                 table = gr.Dataframe(headers=["Region", "Voxels", "Volume (cm³)"],
                                      label="Volumes (TC = NCR + ET, WT = NCR + ED + ET)",
                                      interactive=False)
-                downloads = gr.File(label="Downloads: segmentation.nii.gz, report.json, report.csv",
+                downloads = gr.File(label="Downloads: segmentation.nii.gz, report.json, "
+                                    "report.csv, tumor_3d.glb",
                                     file_count="multiple", interactive=False)
                 gr.Markdown(f"Model weights: {MODEL_DESCRIPTION}. Model: "
                             f"`{PREDICTOR.config.model.name}`.")
+        gr.Markdown(
+            "### 3D view\n"
+            "Drag to rotate, scroll to zoom. Necrotic core red, enhancing tumor yellow, "
+            "edema / whole tumor translucent green, brain outline faint gray. Viewed from "
+            "the front: the patient's right is on your left. True to scale (mm)."
+        )
+        model3d = gr.Model3D(label="3D tumor view", clear_color=(0.08, 0.08, 0.1, 1.0),
+                             height=520, interactive=False)
 
         button.click(run, [*files, tta],
-                     [state, image, index, show_unc, table, info, downloads])
+                     [state, image, index, show_unc, table, info, downloads, model3d])
         view_inputs = [state, plane, index, sequence, opacity, show_unc]
         for control in (index, sequence, opacity, show_unc):
             control.change(render, view_inputs, image)

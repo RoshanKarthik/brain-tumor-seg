@@ -5,6 +5,7 @@ monai==1.6.1
 nibabel==5.4.2
 numpy==2.2.6
 scipy==1.15.3
+scikit-image==0.25.2   # 3D surface meshes (btseg.mesh)
 matplotlib==3.10.9
 pyyaml==6.0.3
 huggingface-hub==2.4.0

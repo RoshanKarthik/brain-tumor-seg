@@ -1,0 +1,115 @@
+{
+  "split": "test",
+  "matched_setting": "tta+threshold_only (TTA on, threshold 0.5 for every region)",
+  "models": {
+    "segresnet": {
+      "run": "segresnet_dice",
+      "parameters": 4702227,
+      "epochs": 60,
+      "best_val_dice_mean": 0.8838,
+      "best_val_epoch": 55,
+      "test_n_cases": 125,
+      "test_dice": {
+        "WT": 0.9299,
+        "TC": 0.9109,
+        "ET": 0.8873
+      },
+      "test_dice_mean_of_regions": 0.9094,
+      "test_hd95_mm": {
+        "WT": 5.735,
+        "TC": 3.823,
+        "ET": 3.396
+      },
+      "wt_volume": {
+        "mae_cm3": 5.626952,
+        "mean_abs_percent_error": 7.410938540106243,
+        "pearson_r": 0.9810389565828396
+      },
+      "inference_seconds_per_case": 14.797
+    },
+    "unet3d": {
+      "run": "unet3d_dice",
+      "parameters": 4810074,
+      "epochs": 60,
+      "best_val_dice_mean": 0.8637,
+      "best_val_epoch": 40,
+      "test_n_cases": 125,
+      "test_dice": {
+        "WT": 0.9202,
+        "TC": 0.8967,
+        "ET": 0.8577
+      },
+      "test_dice_mean_of_regions": 0.8915,
+      "test_hd95_mm": {
+        "WT": 10.788,
+        "TC": 5.802,
+        "ET": 9.486
+      },
+      "wt_volume": {
+        "mae_cm3": 6.115552,
+        "mean_abs_percent_error": 9.669643818291625,
+        "pearson_r": 0.9793921719882546
+      },
+      "inference_seconds_per_case": 4.576
+    }
+  },
+  "paired_tests": {
+    "n_cases": 125,
+    "difference": "segresnet - unet3d",
+    "tests": {
+      "dice_WT": {
+        "mean_difference": 0.0093,
+        "cases_segresnet_better": 90,
+        "cases_unet3d_better": 35,
+        "ties": 0,
+        "wilcoxon_p": 6.494250191628729e-07,
+        "settings_match": false
+      },
+      "hd95_WT": {
+        "mean_difference": -4.227,
+        "cases_segresnet_better": 68,
+        "cases_unet3d_better": 22,
+        "ties": 35,
+        "wilcoxon_p": 8.097604686586052e-06,
+        "settings_match": false
+      },
+      "dice_TC": {
+        "mean_difference": 0.0142,
+        "cases_segresnet_better": 98,
+        "cases_unet3d_better": 27,
+        "ties": 0,
+        "wilcoxon_p": 4.8979302627978245e-09,
+        "settings_match": true
+      },
+      "hd95_TC": {
+        "mean_difference": -1.9785,
+        "cases_segresnet_better": 51,
+        "cases_unet3d_better": 28,
+        "ties": 46,
+        "wilcoxon_p": 0.0005591054850031014,
+        "settings_match": true
+      },
+      "dice_ET": {
+        "mean_difference": 0.0296,
+        "cases_segresnet_better": 99,
+        "cases_unet3d_better": 25,
+        "ties": 1,
+        "wilcoxon_p": 1.7621257380980343e-12,
+        "settings_match": true
+      },
+      "hd95_ET": {
+        "mean_difference": -6.0901,
+        "cases_segresnet_better": 49,
+        "cases_unet3d_better": 23,
+        "ties": 53,
+        "wilcoxon_p": 0.00802996965814552,
+        "settings_match": true
+      }
+    }
+  },
+  "notes": [
+    "Inference time is mean_seconds_per_case from each evaluation's summary.json (separate Kaggle T4 sessions, 8-flip TTA, includes loading the case).",
+    "Paired tests use per_case.csv from each run's main evaluation; settings_match=false means the two runs used different thresholds for that region.",
+    "WT volume rows come from each run's main evaluation (summary.json): segresnet WT threshold 0.3, unet3d WT threshold 0.5."
+  ]
+}
